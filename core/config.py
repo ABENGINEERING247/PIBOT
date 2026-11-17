@@ -1,12 +1,20 @@
-import os
-from dotenv import load_dotenv
-
-load_dotenv()
+import streamlit as st
 
 APP_TITLE = "PIBOT – Raspberry Pi AI Assistant"
 DEVELOPER_NAME = "Engr. Bilal Mehmood"
-DEFAULT_MODEL = os.getenv("PIBOT_MODEL", "gpt-6-luna")
-API_KEY = os.getenv("OPENAI_API_KEY", "")
+
+# Locked Model & Temperature Configuration
+MODEL_NAME = "gpt-6-luna"
+TEMPERATURE = 1.0
+
+
+def get_api_key() -> str:
+    """Retrieves the OpenAI API key exclusively from Streamlit Secrets."""
+    try:
+        return st.secrets["OPENAI_API_KEY"].strip()
+    except (KeyError, FileNotFoundError):
+        return ""
+
 
 SUPPORTED_BOARDS = [
     "Raspberry Pi 5 (RP1 I/O Controller)",
