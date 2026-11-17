@@ -2,16 +2,18 @@ import streamlit as st
 from core.config import (
     APP_TITLE,
     DEVELOPER_NAME,
-    DEFAULT_MODEL,
-    API_KEY,
+    MODEL_NAME,
+    TEMPERATURE,
     SUPPORTED_BOARDS,
     LANGUAGES,
     QUICK_PROMPTS,
+    get_api_key,
 )
 from core.prompts import build_system_prompt
 from core.llm_client import PibotClient
+from core.splash import render_splash_screen
 
-# Page Configuration
+# Page Configuration (Must be the first Streamlit command)
 st.set_page_config(
     page_title=APP_TITLE,
     page_icon="🍓",
@@ -19,11 +21,24 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# Trigger Animated Boot Splash Screen
+render_splash_screen(duration=3.2)
+
 # Custom Styling
 st.markdown(
     """
     <style>
     .stChatMessage { border-radius: 10px; padding: 0.75rem; }
+    .secure-badge {
+        padding: 0.55rem 0.75rem;
+        border-radius: 8px;
+        background: rgba(16, 185, 129, 0.12);
+        border: 1px solid rgba(16, 185, 129, 0.35);
+        color: #10b981;
+        font-size: 0.85rem;
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+    }
     .dev-badge {
         font-size: 0.85rem;
         color: #9ca3af;
@@ -35,6 +50,9 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
+# Load API Key Silently from Streamlit Secrets
+api_key = get_api_key()
 
 # Initialize Session State
 if "messages" not in st.session_state:
@@ -49,37 +67,24 @@ if "messages" not in st.session_state:
         }
     ]
 
-# Sidebar Configuration
+# Sidebar Configuration (No API credential fields rendered)
 with st.sidebar:
     st.title("🍓 PIBOT Control Panel")
     st.caption("Raspberry Pi 4 & 5 Technical Expert")
 
-    api_key_input = st.text_input(
-        "OpenAI API Key",
-        value=API_KEY,
-        type="password",
-        help="Enter your OpenAI API key or configure OPENAI_API_KEY in .env",
-    )
-
-    model_name = st.text_input(
-        "Model Name",
-        value=DEFAULT_MODEL,
-        help="Default: gpt-6-luna",
-    )
+    if api_key:
+        st.markdown(
+            '<div class="secure-badge">🔒 Credentials Secured via Streamlit Secrets</div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        st.error("⚠️ Missing `OPENAI_API_KEY` in `.streamlit/secrets.toml`.")
 
     st.divider()
     st.subheader("Hardware & Language")
 
     selected_board = st.selectbox("Target Raspberry Pi", SUPPORTED_BOARDS, index=0)
     selected_lang = st.selectbox("Response Language", LANGUAGES, index=0)
-    temperature = st.slider(
-        "Creativity / Temperature",
-        min_value=0.0,
-        max_value=1.0,
-        value=0.25,
-        step=0.05,
-        help="Lower values (0.1–0.3) yield more deterministic code and wiring instructions.",
-    )
 
     st.divider()
     st.subheader("Quick Project Starters")
@@ -88,20 +93,26 @@ with st.sidebar:
             st.session_state.pending_prompt = prompt_text
 
     st.divider()
-    if st.button("🗑️ Clear Conversation", use_container_width=True):
-        st.session_state.messages = [st.session_state.messages[0]]
-        st.rerun()
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("🗑️ Clear Chat", use_container_width=True):
+            st.session_state.messages = [st.session_state.messages[0]]
+            st.rerun()
+    with col2:
+        if st.button("🔄 Boot Screen", use_container_width=True):
+            st.session_state.splash_shown = False
+            st.rerun()
 
     st.markdown(
-        f'<div class="dev-badge"><b>Developer:</b> {DEVELOPER_NAME}<br>'
-        f'<b>Engine:</b> {model_name}</div>',
+        f'<div class="dev-badge"><b>Developed by:</b> {DEVELOPER_NAME}<br>'
+        f'<b>Model:</b> {MODEL_NAME} | <b>Temp:</b> {TEMPERATURE}</div>',
         unsafe_allow_html=True,
     )
 
 # Main Chat Header
 st.title("🍓 PIBOT – Raspberry Pi AI Assistant")
 st.caption(
-    f"Hardware Mode: **{selected_board}** | Language: **{selected_lang}** | Developer: **{DEVELOPER_NAME}**"
+    f"Hardware Mode: **{selected_board}** | Language: **{selected_lang}** | Developed by **{DEVELOPER_NAME}**"
 )
 
 # Render Chat History
@@ -110,7 +121,7 @@ for msg in st.session_state.messages:
     with st.chat_message(msg["role"], avatar=avatar):
         st.markdown(msg["content"])
 
-# Handle Input (either from Chat Input or Quick Starter Button)
+# Handle Input
 user_input = st.chat_input(
     "Describe your Raspberry Pi project, wiring question, or error (English / اردو)..."
 )
@@ -119,25 +130,22 @@ if "pending_prompt" in st.session_state and st.session_state.pending_prompt:
     user_input = st.session_state.pop("pending_prompt")
 
 if user_input:
-    if not api_key_input:
-        st.error("Please enter your OpenAI API Key in the sidebar or `.env` file to run PIBOT.")
+    if not api_key:
+        st.error("API credentials are not configured in Streamlit Secrets (`OPENAI_API_KEY`).")
         st.stop()
 
-    # Append and display user message
     st.session_state.messages.append({"role": "user", "content": user_input})
     with st.chat_message("user", avatar="🧑‍💻"):
         st.markdown(user_input)
 
-    # Generate and stream PIBOT response
     system_prompt = build_system_prompt(selected_board, selected_lang)
-    client = PibotClient(api_key=api_key_input, model=model_name)
+    client = PibotClient(api_key=api_key)
 
     with st.chat_message("assistant", avatar="🍓"):
         response_text = st.write_stream(
             client.stream_response(
                 system_prompt=system_prompt,
                 messages=st.session_state.messages,
-                temperature=temperature,
             )
         )
 
